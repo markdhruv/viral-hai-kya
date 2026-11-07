@@ -39,7 +39,61 @@ const toneOptions = [
 // --- FIX ENDS HERE ---
 
 
-const API_KEY = process.env.API_KEY;
+const API_KEY = process.env.API_KEY || process.env.GEMINI_API_KEY;
+
+// --- Guard rails -----------------------------------------------------------
+// This app runs on the owner's Gemini quota, so a public link needs limits.
+
+const ANALYSIS_TIMEOUT_MS = 45000;      // below Vercel's 60s function ceiling
+const DAILY_LIMIT_PER_VISITOR = 15;     // analyses per IP per day
+const MAX_CAMPAIGNS_PER_REQUEST = 10;   // stops one request costing a fortune
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+class TimeoutError extends Error {}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new TimeoutError('Analysis timed out')), ms);
+        promise.then(
+            (value) => { clearTimeout(timer); resolve(value); },
+            (err) => { clearTimeout(timer); reject(err); },
+        );
+    });
+}
+
+// In-memory and therefore per-instance: it resets on cold starts and is not
+// shared across regions. Good enough to stop casual abuse of a portfolio link;
+// swap for Vercel KV if this ever needs to be strict.
+const usage = new Map<string, { count: number; resetAt: number }>();
+
+function getClientId(req: any): string {
+    const forwarded = req.headers['x-forwarded-for'];
+    if (typeof forwarded === 'string' && forwarded.length > 0) {
+        return forwarded.split(',')[0].trim();
+    }
+    return req.socket?.remoteAddress || 'unknown';
+}
+
+function takeRequestSlot(id: string): { allowed: boolean; remaining: number } {
+    const now = Date.now();
+
+    if (usage.size > 5000) {
+        for (const [key, value] of usage) {
+            if (now > value.resetAt) usage.delete(key);
+        }
+    }
+
+    const entry = usage.get(id);
+    if (!entry || now > entry.resetAt) {
+        usage.set(id, { count: 1, resetAt: now + DAY_MS });
+        return { allowed: true, remaining: DAILY_LIMIT_PER_VISITOR - 1 };
+    }
+    if (entry.count >= DAILY_LIMIT_PER_VISITOR) {
+        return { allowed: false, remaining: 0 };
+    }
+    entry.count += 1;
+    return { allowed: true, remaining: DAILY_LIMIT_PER_VISITOR - entry.count };
+}
 
 // The handler function for Vercel.
 export default async function handler(req: any, res: any) {
@@ -52,6 +106,14 @@ export default async function handler(req: any, res: any) {
         return res.status(500).json({ error: "API_KEY environment variable not set on the server." });
     }
     
+    const slot = takeRequestSlot(getClientId(req));
+    if (!slot.allowed) {
+        return res.status(429).json({
+            error: "You have used up today's free analyses. Please come back tomorrow.",
+        });
+    }
+    res.setHeader('X-Analyses-Remaining', String(slot.remaining));
+
     const ai = new GoogleGenAI({ apiKey: API_KEY });
 
     const analysisSchema = {
@@ -149,6 +211,16 @@ export default async function handler(req: any, res: any) {
             return res.status(400).json({ error: "Missing required parameters in request body." });
         }
 
+        if (!Array.isArray(campaigns) || campaigns.length === 0) {
+            return res.status(400).json({ error: "Please provide at least one campaign message." });
+        }
+
+        if (campaigns.length > MAX_CAMPAIGNS_PER_REQUEST) {
+            return res.status(400).json({
+                error: "Please analyse at most " + MAX_CAMPAIGNS_PER_REQUEST + " messages at a time.",
+            });
+        }
+
         const objectiveInstructions = getMarketingObjectiveInstructions(objective);
         const optionalDetailsInstructions = getOptionalDetailsInstructions(details);
 
@@ -208,8 +280,8 @@ export default async function handler(req: any, res: any) {
             Return a JSON object containing a single key "results" which is an array of JSON objects, one for each campaign message provided. Strictly adhere to the provided JSON schema for each object in the array.
           `;
         
-        const geminiResponse = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
+        const geminiResponse = await withTimeout(ai.models.generateContent({
+            model: "gemini-3.8-flash",
             contents: prompt,
             config: {
                 responseMimeType: "application/json",
@@ -223,8 +295,8 @@ export default async function handler(req: any, res: any) {
                     },
                 },
             },
-        });
-        
+        }), ANALYSIS_TIMEOUT_MS);
+
         const responseText = geminiResponse.text.trim();
         const parsedJson = JSON.parse(responseText);
 
@@ -235,8 +307,44 @@ export default async function handler(req: any, res: any) {
         }
 
     } catch (error) {
+        // Log the real thing for us, show something human to the visitor.
         console.error("Error in serverless function:", error);
-        const errorMessage = error instanceof Error ? error.message : "An unknown server error occurred.";
-        return res.status(500).json({ error: "Failed to analyze campaigns.", details: errorMessage });
+
+        if (error instanceof TimeoutError) {
+            return res.status(504).json({
+                error: "That took too long. Google's AI is slow right now - please try again in a minute.",
+            });
+        }
+
+        const raw = error instanceof Error ? error.message : String(error);
+        const status = (error as any)?.status;
+
+        if (status === 503 || raw.includes('UNAVAILABLE') || raw.includes('high demand')) {
+            return res.status(503).json({
+                error: "Google's AI is busy right now. Please try again in a minute.",
+            });
+        }
+
+        if (status === 429 || raw.includes('RESOURCE_EXHAUSTED') || raw.includes('quota')) {
+            return res.status(429).json({
+                error: "This app has hit its daily AI quota. Please try again tomorrow.",
+            });
+        }
+
+        if (status === 404 || raw.includes('NOT_FOUND') || raw.includes('no longer available')) {
+            return res.status(502).json({
+                error: "The AI model this app uses has changed. The app needs an update.",
+            });
+        }
+
+        if (raw.includes('API key') || raw.includes('API_KEY_INVALID')) {
+            return res.status(500).json({
+                error: "The server's AI key is missing or invalid.",
+            });
+        }
+
+        return res.status(500).json({
+            error: "Something went wrong while analysing. Please try again.",
+        });
     }
 }
