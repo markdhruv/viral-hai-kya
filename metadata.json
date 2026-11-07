@@ -1,5 +1,5 @@
 {
-  "name": "Copy of Campaign Confidence Analyzer",
-  "description": "An intelligent tool that analyzes marketing campaigns using AI. It evaluates messages based on emotion, readability, trend relevance, and shareability to provide a confidence score and actionable recommendations.",
+  "name": "Viral Hai Kya",
+  "description": "Scores a marketing campaign before you spend on it. Rates emotion, clarity, trend relevance, shareability and CTA strength against your chosen objective, then gives a weighted confidence score and a recommendation.",
   "requestFramePermissions": []
 }

@@ -11,10 +11,10 @@ export const Header: React.FC = () => {
         </div>
         <div className="ml-4">
           <h1 className="text-xl md:text-2xl font-bold text-slate-900 dark:text-white">
-            Campaign Confidence Analyzer
+            Viral Hai Kya
           </h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            Leverage AI to predict your marketing success
+            Know if your campaign will land — before you spend a rupee.
           </p>
         </div>
       </div>
