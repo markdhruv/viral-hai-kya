@@ -8,7 +8,7 @@ interface ResultsTableProps {
 }
 
 const scoreExplanations: Record<string, string> = {
-    'Confidence Score': "The overall AI-powered prediction of this campaign's success, calculated as a weighted average of all other scores.",
+    'Confidence Score': "A weighted average of the five scores below, judged against the objective you chose. An assessment of the writing, not a prediction of results.",
     'Emotion': "The raw emotional tone of the message. A high score is very positive (e.g., joy), while a low score is negative (e.g., fear, anger).",
     'Clarity & Impact': "Measures how powerfully and clearly the message is written. High scores go to concise, impactful messages with strong, active language.",
     'Relevance': "How well the message aligns with the trending keywords you provided. High scores mean the keywords are integrated naturally and effectively.",

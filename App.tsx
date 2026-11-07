@@ -4,6 +4,7 @@ import { InputForm } from './components/InputForm';
 import { ResultsTable } from './components/ResultsTable';
 import { analyzeCampaignsWithGemini } from './services/geminiService';
 import type { CampaignAnalysisResult, CTA, MarketingObjective, CampaignGoalDetails } from './types';
+import { Methodology } from './components/Methodology';
 import { SparklesIcon } from './components/icons';
 
 const App: React.FC = () => {
@@ -53,6 +54,7 @@ const App: React.FC = () => {
       <Header />
       <main className="container mx-auto p-4 md:p-8">
         <InputForm onAnalyze={handleAnalysis} onReset={handleReset} isLoading={isLoading} />
+        <Methodology />
         
         {error && (
           <div className="mt-8 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg relative" role="alert">
