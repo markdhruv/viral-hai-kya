@@ -46,6 +46,13 @@ const API_KEY = process.env.API_KEY || process.env.GEMINI_API_KEY;
 
 // Vercel gives the function 60s (see vercel.json). Spend at most 52s of that
 // so there is always time left to return a real error instead of being killed.
+// Deliberately not the newest model. gemini-3.8-flash and 3.7-flash were both
+// timing out under load while 3.6-flash answered the same prompt in ~4s. For a
+// public demo a fast answer from a slightly older model beats an error from a
+// contended one. If this model is ever retired, Google's error names the
+// replacement - check how busy it is before adopting it.
+const MODEL = 'gemini-3.6-flash';
+
 const TOTAL_BUDGET_MS = 52000;
 const FIRST_ATTEMPT_MS = 32000;   // successful calls land well inside this
 const MIN_RETRY_MS = 10000;       // do not start a retry we cannot finish
@@ -316,7 +323,7 @@ export default async function handler(req: any, res: any) {
           `;
         
         const geminiResponse = await generateWithRetry(() => ai.models.generateContent({
-            model: "gemini-3.8-flash",
+            model: MODEL,
             contents: prompt,
             config: {
                 responseMimeType: "application/json",
