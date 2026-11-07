@@ -5,9 +5,10 @@ import type {
     CampaignGoalDetails
 } from '../types';
 
-// Slightly longer than the server's own 45s cap, so the server normally wins
-// and gets to return its clearer message.
-const REQUEST_TIMEOUT_MS = 50000;
+// Longer than the server's own 52s budget, so the server normally wins the race
+// and gets to return its clearer message. This is only a backstop for the case
+// where the server itself never replies.
+const REQUEST_TIMEOUT_MS = 58000;
 
 export const analyzeCampaignsWithGemini = async (
   campaigns: string[],

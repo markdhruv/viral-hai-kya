@@ -44,7 +44,12 @@ const API_KEY = process.env.API_KEY || process.env.GEMINI_API_KEY;
 // --- Guard rails -----------------------------------------------------------
 // This app runs on the owner's Gemini quota, so a public link needs limits.
 
-const ANALYSIS_TIMEOUT_MS = 45000;      // below Vercel's 60s function ceiling
+// Vercel gives the function 60s (see vercel.json). Spend at most 52s of that
+// so there is always time left to return a real error instead of being killed.
+const TOTAL_BUDGET_MS = 52000;
+const FIRST_ATTEMPT_MS = 32000;   // successful calls land well inside this
+const MIN_RETRY_MS = 10000;       // do not start a retry we cannot finish
+const RETRY_BACKOFF_MS = 800;
 const DAILY_LIMIT_PER_VISITOR = 15;     // analyses per IP per day
 const MAX_CAMPAIGNS_PER_REQUEST = 10;   // stops one request costing a fortune
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -59,6 +64,36 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
             (err) => { clearTimeout(timer); reject(err); },
         );
     });
+}
+
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Google returns 503 when the model is overloaded, and sometimes just stalls.
+// Both clear on their own, so they are worth one more go. Quota and key errors
+// are not - retrying those only wastes the budget.
+function isWorthRetrying(error: unknown): boolean {
+    if (error instanceof TimeoutError) return true;
+    const status = (error as any)?.status;
+    const raw = error instanceof Error ? error.message : String(error);
+    return status === 503 || raw.includes('UNAVAILABLE') || raw.includes('high demand');
+}
+
+async function generateWithRetry<T>(attempt: () => Promise<T>): Promise<T> {
+    const startedAt = Date.now();
+    const remaining = () => TOTAL_BUDGET_MS - (Date.now() - startedAt);
+
+    try {
+        return await withTimeout(attempt(), Math.min(FIRST_ATTEMPT_MS, remaining()));
+    } catch (error) {
+        if (!isWorthRetrying(error)) throw error;
+
+        await delay(RETRY_BACKOFF_MS);
+        const left = remaining();
+        if (left < MIN_RETRY_MS) throw error;
+
+        console.warn('Retrying after a transient Gemini failure. Budget left:', left, 'ms');
+        return await withTimeout(attempt(), left);
+    }
 }
 
 // In-memory and therefore per-instance: it resets on cold starts and is not
@@ -280,7 +315,7 @@ export default async function handler(req: any, res: any) {
             Return a JSON object containing a single key "results" which is an array of JSON objects, one for each campaign message provided. Strictly adhere to the provided JSON schema for each object in the array.
           `;
         
-        const geminiResponse = await withTimeout(ai.models.generateContent({
+        const geminiResponse = await generateWithRetry(() => ai.models.generateContent({
             model: "gemini-3.8-flash",
             contents: prompt,
             config: {
@@ -295,7 +330,7 @@ export default async function handler(req: any, res: any) {
                     },
                 },
             },
-        }), ANALYSIS_TIMEOUT_MS);
+        }));
 
         const responseText = geminiResponse.text.trim();
         const parsedJson = JSON.parse(responseText);
