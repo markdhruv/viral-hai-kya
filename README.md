@@ -6,7 +6,7 @@ Paste a campaign message, pick what you are actually trying to achieve, and get 
 scored read on it: emotion, clarity, trend relevance, shareability and CTA strength,
 weighted into a single confidence score with a recommendation.
 
-> **Live demo:** _add your Vercel URL here_
+> **Live demo:** https://viral-hai-kya.vercel.app
 
 ---
 
