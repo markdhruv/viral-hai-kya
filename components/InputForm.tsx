@@ -49,6 +49,8 @@ const FileInput: React.FC<{ id: string; label: string; file: File | null; onChan
 
 export const InputForm: React.FC<InputFormProps> = ({ onAnalyze, onReset, isLoading }) => {
   const [campaignMessage, setCampaignMessage] = useState<string>('');
+  const [keywordsText, setKeywordsText] = useState<string>('');
+  const [ctasText, setCtasText] = useState<string>('');
   const [keywordFile, setKeywordFile] = useState<File | null>(null);
   const [campaignFile, setCampaignFile] = useState<File | null>(null);
   const [ctaFile, setCtaFile] = useState<File | null>(null);
@@ -71,6 +73,8 @@ export const InputForm: React.FC<InputFormProps> = ({ onAnalyze, onReset, isLoad
 
   const handleReset = useCallback(() => {
     setCampaignMessage('');
+    setKeywordsText('');
+    setCtasText('');
     setKeywordFile(null);
     setCampaignFile(null);
     setCtaFile(null);
@@ -121,10 +125,20 @@ export const InputForm: React.FC<InputFormProps> = ({ onAnalyze, onReset, isLoad
         if (keywordFile) {
             const keywordData = await readFileAsJson<{ 'Keyword': string }>(keywordFile);
             keywords = keywordData.map(row => row['Keyword']).filter(Boolean);
+        } else if (keywordsText.trim()) {
+            // Accept commas or new lines as separators.
+            keywords = keywordsText.split(/[,\n]/).map(k => k.trim()).filter(Boolean);
         }
-        
+
         if (ctaFile) {
             ctas = await readFileAsJson<CTA>(ctaFile);
+        } else if (ctasText.trim()) {
+            // CTAs can contain commas, so split on new lines only.
+            ctas = ctasText
+                .split('\n')
+                .map(t => t.trim())
+                .filter(Boolean)
+                .map(text => ({ 'CTA Text': text }));
         }
         
         onAnalyze(campaigns, keywords, ctas, marketingObjective, goalDetails);
@@ -134,7 +148,7 @@ export const InputForm: React.FC<InputFormProps> = ({ onAnalyze, onReset, isLoad
         alert(err instanceof Error ? err.message : "An error occurred during file processing.");
     }
 
-  }, [campaignMessage, keywordFile, campaignFile, ctaFile, onAnalyze, marketingObjective, goalDetails]);
+  }, [campaignMessage, keywordsText, ctasText, keywordFile, campaignFile, ctaFile, onAnalyze, marketingObjective, goalDetails]);
 
   const handleDetailChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -237,13 +251,53 @@ export const InputForm: React.FC<InputFormProps> = ({ onAnalyze, onReset, isLoad
               placeholder="Enter one campaign message per line, or upload a file below."
               className="w-full p-3 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-slate-50 dark:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
             />
-             <p className="mt-2 text-center text-sm text-slate-500">OR</p>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">One message per line.</p>
+          </div>
+
+          <div>
+            <label htmlFor="keywords" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+              Trending Keywords
+            </label>
+            <textarea
+              id="keywords"
+              rows={2}
+              value={keywordsText}
+              onChange={(e) => setKeywordsText(e.target.value)}
+              disabled={!!keywordFile || isLoading}
+              placeholder="winter fashion, sale, sustainable style"
+              className="w-full p-3 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-slate-50 dark:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            />
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Separate with commas or new lines. Used to score trend relevance.</p>
+          </div>
+
+          <div>
+            <label htmlFor="ctas" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+              Call-to-Action Examples
+            </label>
+            <textarea
+              id="ctas"
+              rows={2}
+              value={ctasText}
+              onChange={(e) => setCtasText(e.target.value)}
+              disabled={!!ctaFile || isLoading}
+              placeholder={'Shop Now\nLearn More'}
+              className="w-full p-3 border border-slate-300 dark:border-slate-600 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm bg-slate-50 dark:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            />
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">One CTA per line. Used to score CTA strength.</p>
           </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="border-t border-slate-200 dark:border-slate-700 pt-6">
+            <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
+              Got a lot of them? Upload spreadsheets instead
+            </p>
+            <p className="mb-4 text-xs text-slate-500 dark:text-slate-400">
+              An uploaded file replaces whatever you typed above for that field.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <FileInput id="upload-keywords" label="Upload Keywords" file={keywordFile} onChange={handleFileChange(setKeywordFile)} onClear={() => setKeywordFile(null)} accept=".xlsx" onDownloadTemplate={() => downloadTemplate(['Keyword'], 'Keywords_Template.xlsx')} />
               <FileInput id="upload-campaigns" label="Upload Campaigns" file={campaignFile} onChange={handleFileChange(setCampaignFile)} onClear={() => setCampaignFile(null)} accept=".xlsx" onDownloadTemplate={() => downloadTemplate(['Campaign Message'], 'Campaigns_Template.xlsx')} />
               <FileInput id="upload-ctas" label="Upload CTAs" file={ctaFile} onChange={handleFileChange(setCtaFile)} onClear={() => setCtaFile(null)} accept=".xlsx" onDownloadTemplate={() => downloadTemplate(['CTA Text'], 'CTAs_Template.xlsx')} />
+            </div>
           </div>
         </div>
 
