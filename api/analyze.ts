@@ -53,6 +53,56 @@ const API_KEY = process.env.API_KEY || process.env.GEMINI_API_KEY;
 // replacement - check how busy it is before adopting it.
 const MODEL = 'gemini-3.6-flash';
 
+// ---------------------------------------------------------------------------
+// Scoring. The model supplies the six judgements; the arithmetic happens here.
+//
+// Asking a language model to compute its own weighted average meant the weights
+// published on the methodology panel were not the weights actually applied, and
+// the recommendation band could disagree with the score printed beside it. Both
+// are now derived from the six scores, so the published method is the real one.
+// ---------------------------------------------------------------------------
+const WEIGHTS = {
+    subjectiveFitScore: 0.25,
+    clarityAndImpactScore: 0.20,
+    combinedEmotionScore: 0.20,
+    ctaStrengthScore: 0.15,
+    trendRelevanceScore: 0.10,
+    steppsShareabilityScore: 0.10,
+} as const;
+
+type ScoreKey = keyof typeof WEIGHTS;
+
+/** Hold a model-supplied score inside the 1-5 scale the whole model is defined on. */
+const clampScore = (value: unknown): number => {
+    const n = typeof value === 'number' && Number.isFinite(value) ? value : 3;
+    return Math.min(5, Math.max(1, n));
+};
+
+const recommendationFor = (score: number): string => {
+    if (score >= 4.0) return "✅ Strong potential to succeed";
+    if (score >= 3.0) return "⚠️ Good, but revise key elements";
+    return "❌ Needs rework before launch";
+};
+
+/** Clamp the six scores, then derive the weighted total and the band from them. */
+const scoreResult = (raw: Record<string, unknown>) => {
+    const scores = {} as Record<ScoreKey, number>;
+    for (const key of Object.keys(WEIGHTS) as ScoreKey[]) {
+        scores[key] = clampScore(raw[key]);
+    }
+
+    const weighted = (Object.keys(WEIGHTS) as ScoreKey[])
+        .reduce((total, key) => total + scores[key] * WEIGHTS[key], 0);
+    const weightedCampaignConfidenceScore = Math.round(weighted * 100) / 100;
+
+    return {
+        ...raw,
+        ...scores,
+        weightedCampaignConfidenceScore,
+        recommendation: recommendationFor(weightedCampaignConfidenceScore),
+    };
+};
+
 const TOTAL_BUDGET_MS = 52000;
 const FIRST_ATTEMPT_MS = 32000;   // successful calls land well inside this
 const MIN_RETRY_MS = 10000;       // do not start a retry we cannot finish
@@ -168,8 +218,6 @@ export default async function handler(req: any, res: any) {
         steppsShareabilityScore: { type: Type.NUMBER },
         ctaStrengthScore: { type: Type.NUMBER },
         subjectiveFitScore: { type: Type.NUMBER },
-        weightedCampaignConfidenceScore: { type: Type.NUMBER },
-        recommendation: { type: Type.STRING },
       },
       required: [
         "campaignMessage",
@@ -179,8 +227,6 @@ export default async function handler(req: any, res: any) {
         "steppsShareabilityScore",
         "ctaStrengthScore",
         "subjectiveFitScore",
-        "weightedCampaignConfidenceScore",
-        "recommendation",
       ]
     };
 
@@ -299,23 +345,9 @@ export default async function handler(req: any, res: any) {
             5.  **ctaStrengthScore (1-5):** Analyze the Call-to-Action. 1 is weak, vague, or missing. 5 is clear, urgent, and persuasive.
             6.  **subjectiveFitScore (1-5):** This is the most important score. Based on the **Marketing Objective** and any provided **Optional Campaign Details**, how well does the message fit the strategic goal? 1 is a complete mismatch, 5 is a perfect fit.
 
-            **Final Calculations:**
-
-            Using the scores from the analysis, calculate the following:
-
-            1.  **weightedCampaignConfidenceScore:** Calculate a weighted average using these weights:
-                *   subjectiveFitScore: 0.25
-                *   clarityAndImpactScore: 0.20
-                *   combinedEmotionScore: 0.20
-                *   ctaStrengthScore: 0.15
-                *   trendRelevanceScore: 0.10
-                *   steppsShareabilityScore: 0.10
-                Round the final score to two decimal places.
-
-            2.  **recommendation:** Based on the "weightedCampaignConfidenceScore", provide one of the following recommendations:
-                *   "✅ Strong potential to succeed" (if score >= 4.0)
-                *   "⚠️ Good, but revise key elements" (if score >= 3.0 and < 4.0)
-                *   "❌ Needs rework before launch" (if score < 3.0)
+            Return each of the six scores as a number from 1 to 5. Do not compute a
+            weighted total or a recommendation: both are derived in code from the six
+            scores above, so that the published weights are actually the weights applied.
 
             **Output Format:**
 
@@ -342,11 +374,11 @@ export default async function handler(req: any, res: any) {
         const responseText = geminiResponse.text.trim();
         const parsedJson = JSON.parse(responseText);
 
-        if (parsedJson && parsedJson.results) {
-            return res.status(200).json(parsedJson.results);
-        } else {
+        if (!parsedJson || !Array.isArray(parsedJson.results)) {
             throw new Error("Invalid response structure from Gemini API.");
         }
+
+        return res.status(200).json(parsedJson.results.map(scoreResult));
 
     } catch (error) {
         // Log the real thing for us, show something human to the visitor.
