@@ -56,7 +56,7 @@ But v1 is the better artefact, so it is published rather than deleted.
 
 | | |
 |---|---|
-| [`METHODOLOGY.md`](METHODOLOGY.md) | What each dimension measures, which model produces it, and why that one |
+| [`METHODOLOGY.md`](METHODOLOGY.md) | How both versions score: what each dimension measures, which model produces it, and why that one |
 | [`archive/v1/`](archive/v1/) | The original Python engine, corrected and runnable |
 | `App.tsx`, `api/`, `components/` | The v2 web app |
 

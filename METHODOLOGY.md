@@ -3,11 +3,13 @@
 How campaign copy is scored before it ships: what each dimension measures, which
 model produces it, and why that model was chosen.
 
-This is the methodology for **v1**, the Python NLP engine, which is the reference
-implementation in [`archive/v1/score_campaigns.py`](archive/v1/score_campaigns.py).
-The live web app is a later rebuild that scores the same idea differently —
-see [the README](README.md) for what changed and why. Where the two disagree, this
-document describes v1.
+Two versions are documented here, because they score differently and both exist.
+**Sections 1 to 5 describe v1**, the Python NLP engine, whose reference
+implementation is [`archive/v1/score_campaigns.py`](archive/v1/score_campaigns.py).
+**[Section 6](#6-v2-how-the-live-app-scores) describes v2**, the live web app.
+They share an idea and a 1–5 scale; they do not share dimensions, weights or
+mechanism, and a v1 score is not comparable with a v2 score for the same copy.
+[The README](README.md) covers why the rebuild happened.
 
 **[Corrections](#corrections) at the end lists five defects found in the original
 paper and code, and what was done about each.** Nothing here is validated against
@@ -15,7 +17,7 @@ real campaign outcomes.
 
 ---
 
-## 1. What the tool does
+## 1. What the tool does (v1)
 
 A campaign evaluation and scoring engine built with natural language processing,
 sentiment analysis and heuristic models. It lets a marketing team evaluate messages
@@ -186,7 +188,7 @@ guarantee a fit with yours.
 
 ---
 
-## 4. Reading the output
+## 4. Reading the output (v1)
 
 | Metric | What it tells you |
 |---|---|
@@ -234,7 +236,109 @@ should aim for readability and CTA clarity.
 
 ---
 
-## 6. What this is not
+## 6. v2: how the live app scores
+
+The [live app](https://viral-hai-kya.vercel.app) is a rebuild, not a port. It
+reaches the same kind of answer by a different route, and this section documents
+what it actually does rather than what v1 did.
+
+### Six scores, not five
+
+v2 splits apart two things v1 had merged, and asks directly about one v1 could
+only infer. Clarity is separated from emotion rather than left implicit in
+readability. CTA strength is pulled out of the shareability composite, where v1
+had buried it as one of four sub-components. And strategic fit is asked about
+directly, instead of being proxied by the emotion score.
+
+| Score | What it asks | Weight |
+|---|---|---|
+| Objective fit | Does this serve the goal you picked? | 0.25 |
+| Clarity & impact | Active voice, strong verbs, no jargon | 0.20 |
+| Emotion | Raw emotional charge, independent of intent | 0.20 |
+| CTA strength | Is the ask clear, urgent and persuasive? | 0.15 |
+| Trend relevance | Does it connect to your keywords? | 0.10 |
+| Shareability | Would anyone pass this on? | 0.10 |
+
+$$Final = 0.25\,O + 0.20\,C + 0.20\,E + 0.15\,A + 0.10\,T + 0.10\,S$$
+
+Objective fit carries the most weight because a well-written message aimed at the
+wrong goal still fails. Trend relevance and shareability carry the least because
+they are the most situational — a B2B renewal email is not supposed to go viral.
+
+The recommendation bands are unchanged from v1: **≥ 4.0** strong potential,
+**3.0–3.9** good but revise, **below 3.0** needs rework.
+
+### Scoring against an objective
+
+This is the largest difference between the versions. v1 scored a message in the
+abstract. v2 requires you to declare what the campaign is *for* before it will
+score anything, and each objective rewards different traits:
+
+| Objective | What it rewards | What it penalises |
+|---|---|---|
+| Create awareness | Simple, catchy, a strong emotional hook; memorability over detail | Detail that dilutes recall |
+| Drive consideration | Informative, benefit-led, trustworthy | Hype |
+| Drive sales | Urgency, scarcity, an unmistakable ask | A passive tone |
+| Build loyalty | Warmth, gratitude, exclusivity | Selling hard |
+
+The same line therefore scores differently depending on the objective selected.
+That is the point: a line that is perfect for a loyalty email is a bad line for a
+conversion ad.
+
+### What produces the scores
+
+One call per request to **`gemini-3.6-flash`**, through the `@google/genai` SDK,
+from a serverless function so the API key stays off the client. The call uses a
+structured JSON schema (`responseMimeType: application/json` plus a
+`responseSchema`), so the model returns six numbers in named fields rather than
+prose to be parsed.
+
+There is no VADER, no RoBERTa, no MiniLM and no Empath in v2. Some dimension names
+survive from v1, but nothing of the mechanism does. Where v1 computed a score from
+a lexicon or an embedding, v2 asks a general-purpose language model to make a
+judgement.
+
+### What the model decides, and what the code decides
+
+The split matters, and getting it wrong was the defect that prompted this section:
+
+- **The model supplies** the six judgements, each 1–5, and the written
+  recommendation text for the message.
+- **The code supplies** everything derived from them. The six weights live in a
+  single `WEIGHTS` constant in `api/analyze.ts`; each returned score is clamped to
+  1–5, since a JSON schema of type `NUMBER` constrains neither range nor sanity
+  and TypeScript types are erased at runtime; the weighted total is computed and
+  rounded to two decimal places; and the band is a function of that total.
+
+Because the band is derived from the number, the two cannot contradict each other.
+Because the weights live in code, the weights published above are the weights
+applied. Earlier the prompt asked the model to do both, and neither guarantee
+held — see [Correction 6](#6-v2-delegated-its-own-arithmetic-to-the-model).
+
+### Limits
+
+Ten messages per request. Fifteen analyses per visitor per day, on the public
+deployment. A 52-second server budget with one retry if Gemini stalls or returns
+503, which it does under load.
+
+### What v2 gives up
+
+**Determinism.** The same copy scored twice can return different numbers. v1 could
+not do this: given the same inputs it returned the same output every time.
+
+**Traceability.** v1 could tell you a message scored 2.8 because Flesch Reading
+Ease came back at 31 and no uploaded CTA matched. v2 can give you a reason in
+words, but not a derivation you can check. The weighted arithmetic on top of the
+six scores is now verifiable; the six scores themselves are not.
+
+This is a real loss, accepted deliberately. The tool's job is a fast second opinion
+before a line ships, and for that, being roughly right in ten seconds beats being
+precisely right in an hour. v1 is published in `archive/v1/` for when the opposite
+is true.
+
+---
+
+## 7. What this is not
 
 This is a structured second opinion, not a prediction. The scores come from
 language models and lexicons reasoning about copy, **not from campaign performance
@@ -244,7 +348,11 @@ reason to look harder, not as a verdict.
 The weights are judgement, not regression output. They were set from reasoning
 about which dimensions matter most for short-form copy, and they have not been
 fitted to results. Calibrating them against actual post-launch performance is the
-most valuable thing that could be done to this model.
+most valuable thing that could be done to either model.
+
+In v2 the scores are also **not reproducible**: the same message can score
+differently on two runs. Treat a difference of a few tenths between runs as noise,
+not as signal, and do not compare a v1 score with a v2 score at all.
 
 ---
 
@@ -299,6 +407,21 @@ The keyword component was called `tfidf_score`. It is a weighted count of keywor
 presence; there is no inverse document frequency in it.
 
 **Fixed:** renamed to reflect what it computes.
+
+### 6. v2 delegated its own arithmetic to the model
+
+The first five corrections are v1's. This one is v2's. The prompt asked Gemini to
+compute the weighted average of the six scores and then select a recommendation
+band from it, and nothing downstream recomputed or validated either. So the weights
+published on the methodology panel were not necessarily the weights applied, and
+the band could disagree with the score printed beside it. The scores themselves
+were unvalidated too: a schema field of type `NUMBER` would have passed a 7 or a
+−1 straight to the interface.
+
+**Fixed:** the model returns only the six judgements. `WEIGHTS` in `api/analyze.ts`
+is the single source of truth, scores are clamped to 1–5, the total is computed in
+code and the band is derived from it. v1 had always done this correctly, in
+`compute_weighted_score` and `get_recommendation`; v2 now does too.
 
 ---
 
