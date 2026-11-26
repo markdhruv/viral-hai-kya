@@ -152,7 +152,7 @@ translated into proxies:
 | Format heuristics | ≤ 20 words; contains a question | 0.20 |
 | Social lexicon | Empath categories: social media, affection, fun | 0.20 |
 
-$$STEPPS = 0.30\,T + 0.30\,C + 0.20\,F + 0.20\,S$$
+$$STEPPS = 0.30 \cdot T + 0.30 \cdot C + 0.20 \cdot F + 0.20 \cdot S$$
 
 Each component is normalised to 1–5 before weighting, and the total is clamped.
 
@@ -198,7 +198,7 @@ guarantee a fit with yours.
 | STEPPS | Spread potential, from triggers that drive sharing |
 | Resonance | Strategic alignment with tone and objective *(reported, unweighted)* |
 
-$$Final = 0.34\,E + 0.22\,R + 0.22\,T + 0.22\,S$$
+$$Final = 0.34 \cdot E + 0.22 \cdot R + 0.22 \cdot T + 0.22 \cdot S$$
 
 | Score | Recommendation |
 |---|---|
@@ -259,7 +259,7 @@ directly, instead of being proxied by the emotion score.
 | Trend relevance | Does it connect to your keywords? | 0.10 |
 | Shareability | Would anyone pass this on? | 0.10 |
 
-$$Final = 0.25\,O + 0.20\,C + 0.20\,E + 0.15\,A + 0.10\,T + 0.10\,S$$
+$$Final = 0.25 \cdot O + 0.20 \cdot C + 0.20 \cdot E + 0.15 \cdot A + 0.10 \cdot T + 0.10 \cdot S$$
 
 Objective fit carries the most weight because a well-written message aimed at the
 wrong goal still fails. Trend relevance and shareability carry the least because
